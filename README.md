@@ -21,9 +21,24 @@ English or Hinglish, by voice, or by attaching a photo (a dish, a grocery list, 
 
 ```bash
 npm install
-cp .env.example .env.local   # add your ANTHROPIC_API_KEY
+cp .env.example .env.local   # add an LLM key (see below)
 npm run dev                  # http://localhost:3000
 ```
+
+### Choosing the LLM (paid vs free)
+
+The agent loop is provider-pluggable (`src/lib/agent/llm.ts`):
+
+- **Claude (`ANTHROPIC_API_KEY`)** — best quality for this tool-heavy, multi-step
+  agent; pay-per-use (no free tier on the Anthropic API).
+- **Free tiers via any OpenAI-compatible endpoint** — set `OPENAI_API_KEY`,
+  `OPENAI_BASE_URL`, `OPENAI_MODEL` (presets for **Google Gemini**, **Groq**, and
+  **OpenRouter** are in `.env.example`). Gemini's free tier is the best default:
+  it supports tool calling **and** vision (needed for the photo features).
+  Auto-selected when no Anthropic key is set; force with `LLM_PROVIDER=openai`.
+
+Free tiers are rate-limited and the smaller models make more tool-calling
+mistakes — fine for development and demos, not for real customers.
 
 - **Mock mode (default, `SWIGGY_MODE=mock`)** — full product experience against a built-in
   simulator of Swiggy's servers (Bengaluru fixtures). "Connect Swiggy" links instantly.

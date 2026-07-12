@@ -8,12 +8,14 @@
     "start": "next start",
     "lint": "next lint",
     "smoke": "tsx scripts/smoke-gateway.ts",
-    "discover-tools": "node scripts/discover-tools.mjs"
+    "discover-tools": "node scripts/discover-tools.mjs",
+    "smoke:llm": "tsx scripts/smoke-llm-adapter.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
     "@modelcontextprotocol/sdk": "^1.21.0",
     "next": "^15.5.7",
+    "openai": "^6.46.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "zod": "^3.25.0"

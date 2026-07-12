@@ -1,24 +1,12 @@
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import { GatewayError } from "../gateway/gateway";
 import { store, type PendingConfirmation, type Session } from "../store";
 import type { ChatEvent, ConfirmationRequest, Order } from "../types";
+import { llm } from "./llm";
 import { buildSystemPrompt } from "./prompt";
 import { AGENT_TOOLS, executeGatedTool, executeTool, GATED_TOOLS } from "./tools";
 
 const MAX_TOOL_ROUNDS = 12;
-
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-5";
-
-let _anthropic: Anthropic | undefined;
-function anthropic(): Anthropic {
-  if (!_anthropic) {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      throw new Error("ANTHROPIC_API_KEY is not set — copy .env.example to .env.local and add your key.");
-    }
-    _anthropic = new Anthropic();
-  }
-  return _anthropic;
-}
 
 export type Emit = (event: ChatEvent) => void;
 
@@ -30,22 +18,19 @@ export type Emit = (event: ChatEvent) => void;
  */
 export async function runAgentTurn(session: Session, emit: Emit): Promise<void> {
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const stream = anthropic().messages.stream({
-      model: MODEL,
-      max_tokens: 2048,
+    const turn = await llm().streamTurn({
       system: buildSystemPrompt(new Date()),
       tools: AGENT_TOOLS,
+      maxTokens: 2048,
       messages: session.messages,
+      onText: (delta) => emit({ type: "text_delta", text: delta }),
     });
 
-    stream.on("text", (delta) => emit({ type: "text_delta", text: delta }));
-    const message = await stream.finalMessage();
-
     // Persist the assistant turn exactly as produced.
-    session.messages.push({ role: "assistant", content: message.content });
+    session.messages.push({ role: "assistant", content: turn.content });
 
-    const toolUses = message.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-    if (message.stop_reason !== "tool_use" || toolUses.length === 0) {
+    const toolUses = turn.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
+    if (turn.stopReason !== "tool_use" || toolUses.length === 0) {
       emit({ type: "done" });
       return;
     }
