@@ -103,7 +103,26 @@ class OpenAICompatLlm implements LlmClient {
   });
   private model = process.env.OPENAI_MODEL!;
 
-  async streamTurn({ system, messages, tools, maxTokens, onText }: StreamTurnParams): Promise<LlmTurn> {
+  async streamTurn(params: StreamTurnParams): Promise<LlmTurn> {
+    try {
+      return await this.runTurn(params);
+    } catch (err) {
+      if (err instanceof OpenAI.APIError) {
+        const hint =
+          err.status === 404
+            ? ` — model "${this.model}" not found or retired; fix OPENAI_MODEL in .env.local (Gemini: use gemini-3.5-flash)`
+            : err.status === 429
+              ? " — free-tier rate limit hit; wait a minute and retry"
+              : err.status === 401 || err.status === 403
+                ? " — check OPENAI_API_KEY in .env.local"
+                : "";
+        throw new Error(`LLM error ${err.status ?? ""} from ${this.model}: ${err.message}${hint}`);
+      }
+      throw err;
+    }
+  }
+
+  private async runTurn({ system, messages, tools, maxTokens, onText }: StreamTurnParams): Promise<LlmTurn> {
     const stream = await this.client.chat.completions.create({
       model: this.model,
       max_tokens: maxTokens,
