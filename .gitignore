@@ -1,0 +1,16 @@
+# deps / build
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# env & secrets
+.env
+.env.local
+.env*.local
+.swiggy_tokens.json
+
+# misc
+.DS_Store
+npm-debug.log*
