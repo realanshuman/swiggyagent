@@ -19,6 +19,16 @@ export interface LlmTurn {
   stopReason: "tool_use" | "end_turn";
 }
 
+/**
+ * Provider-specific opaque metadata (e.g. Gemini thought signatures) stashed
+ * on canonical content blocks so it can be replayed verbatim on later turns.
+ * Ignored entirely by the Anthropic provider and the UI.
+ */
+interface WithExtra {
+  __extra_content?: unknown;
+  __msg_extra_content?: unknown;
+}
+
 export interface StreamTurnParams {
   system: string;
   messages: Anthropic.MessageParam[];
@@ -111,7 +121,8 @@ class OpenAICompatLlm implements LlmClient {
 
     let text = "";
     let finish: string | null = null;
-    const calls = new Map<number, { id: string; name: string; args: string }>();
+    let msgExtra: unknown;
+    const calls = new Map<number, { id: string; name: string; args: string; extra?: unknown }>();
 
     for await (const chunk of stream) {
       const choice = chunk.choices?.[0];
@@ -120,18 +131,28 @@ class OpenAICompatLlm implements LlmClient {
         text += choice.delta.content;
         onText(choice.delta.content);
       }
+      // Gemini 3.x attaches provider extras (thought signatures) that MUST be
+      // echoed back on later requests, or tool-calling turns 400.
+      const deltaExtra = (choice.delta as { extra_content?: unknown } | undefined)?.extra_content;
+      if (deltaExtra) msgExtra = deltaExtra;
       for (const tc of choice.delta?.tool_calls ?? []) {
         const slot = calls.get(tc.index) ?? { id: "", name: "", args: "" };
         if (tc.id) slot.id = tc.id;
         if (tc.function?.name) slot.name += tc.function.name;
         if (tc.function?.arguments) slot.args += tc.function.arguments;
+        const tcExtra = (tc as { extra_content?: unknown }).extra_content;
+        if (tcExtra) slot.extra = tcExtra;
         calls.set(tc.index, slot);
       }
       if (choice.finish_reason) finish = choice.finish_reason;
     }
 
     const content: Anthropic.ContentBlock[] = [];
-    if (text) content.push({ type: "text", text, citations: null });
+    if (text) {
+      const textBlock = { type: "text", text, citations: null } as Anthropic.TextBlock;
+      if (msgExtra) (textBlock as WithExtra).__msg_extra_content = msgExtra;
+      content.push(textBlock);
+    }
     let seq = 0;
     for (const call of calls.values()) {
       let input: unknown = {};
@@ -140,12 +161,15 @@ class OpenAICompatLlm implements LlmClient {
       } catch {
         input = {};
       }
-      content.push({
+      const block = {
         type: "tool_use",
         id: call.id || `call_${Date.now()}_${seq++}`,
         name: call.name,
         input,
-      } as Anthropic.ToolUseBlock);
+      } as Anthropic.ToolUseBlock;
+      if (call.extra) (block as WithExtra).__extra_content = call.extra;
+      else if (msgExtra && content.length === 0 && seq === 0) (block as WithExtra).__msg_extra_content = msgExtra;
+      content.push(block);
     }
 
     return {
@@ -177,14 +201,18 @@ export function toOpenAiMessages(
 
     if (msg.role === "assistant") {
       let text = "";
-      const toolCalls: OpenAI.Chat.ChatCompletionMessageToolCall[] = [];
+      let msgExtra: unknown;
+      const toolCalls: (OpenAI.Chat.ChatCompletionMessageToolCall & { extra_content?: unknown })[] = [];
       for (const block of msg.content) {
+        const extras = block as WithExtra;
+        if (extras.__msg_extra_content) msgExtra = extras.__msg_extra_content;
         if (block.type === "text") text += block.text;
         else if (block.type === "tool_use") {
           toolCalls.push({
             id: block.id,
             type: "function",
             function: { name: block.name, arguments: JSON.stringify(block.input ?? {}) },
+            ...(extras.__extra_content ? { extra_content: extras.__extra_content } : {}),
           });
         }
       }
@@ -192,7 +220,8 @@ export function toOpenAiMessages(
         role: "assistant",
         content: text || null,
         ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
-      });
+        ...(msgExtra ? { extra_content: msgExtra } : {}),
+      } as OpenAI.Chat.ChatCompletionMessageParam);
       continue;
     }
 

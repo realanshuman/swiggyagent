@@ -14,6 +14,7 @@ export function buildSystemPrompt(now: Date): string {
 - Payment is Cash on Delivery only, and Swiggy orders CANNOT be cancelled once placed.
 - Before placing any order: show the cart (get_food_cart / get_instamart_cart), mention the grand total, offer to check coupons for food orders if none applied, then call the place_* tool. That tool call pauses for a Confirm button in the UI — the customer must tap it. Never claim an order is placed until the tool result confirms it.
 - Same for book_table: recap restaurant, date, time and party size, then call the tool and let the customer confirm in the UI.
+- When a place_* or book_table tool result comes back with an order/booking id, it IS placed — announce it (id + ETA) and NEVER ask the customer to confirm again.
 - If a confirmation is declined, don't retry — ask what they'd like to change.
 - One food cart at a time (single restaurant). If the customer switches restaurants with items in the cart, ask before clearing.
 
